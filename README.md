@@ -21,6 +21,8 @@ python3 scripts/codex-collector.py configure --site https://agentbudget-catherin
 python3 scripts/codex-collector.py install
 ```
 
+If clipboard access is unavailable, use **Download connection file**, then run `python3 scripts/codex-collector.py configure --config-file /path/to/agentbudget-connection.json`. This file contains a private write-only key; remove the downloaded copy after importing it.
+
 On macOS, this installs a user LaunchAgent that starts at login and runs every 30 seconds while your Mac is awake. The website can be closed. Open Overview for actual counts, or ask the hosted `@AgentBudget` plugin for your actual Codex usage. The web page refreshes its usage report every 10 seconds. `get_spend_summary` returns `codex_usage` with source, coverage, `observed_at`, and `received_at`; `list_runs` and `get_run_details` continue to describe SDK/dashboard tasks, not Codex sessions.
 
 ```sh

@@ -142,7 +142,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def upload(config, payload):
     endpoint = valid_site(config['site']) + '/api/collector/usage'
     request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers={
-        'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config['token']}, method='POST')
+        'Content-Type': 'application/json', 'Accept': 'application/json',
+        'User-Agent': 'AgentBudget-Collector/0.3 (+https://github.com/catherinemao1010/agentbudget)',
+        'Authorization': 'Bearer ' + config['token']}, method='POST')
     with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as result:
         return json.load(result)
 
@@ -194,12 +196,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['configure', 'once', 'run', 'status', 'install', 'uninstall'])
     parser.add_argument('--site')
+    parser.add_argument('--config-file', type=Path)
     parser.add_argument('--local-only', action='store_true')
     args = parser.parse_args()
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     if args.command == 'configure':
-        site = valid_site(args.site or input('AgentBudget HTTPS site: ').strip())
-        token = getpass.getpass('Collector key from Integrations (hidden): ').strip()
+        if args.config_file:
+            connection = json.loads(args.config_file.read_text())
+            site = valid_site(connection['site'])
+            token = connection['token']
+        else:
+            site = valid_site(args.site or input('AgentBudget HTTPS site: ').strip())
+            token = getpass.getpass('Collector key from Integrations (hidden): ').strip()
         if not token.startswith('ab_') or len(token) != 67 or any(c not in '0123456789abcdef' for c in token[3:]):
             parser.error('Invalid collector key')
         secure_json(CONFIG, {'site': site, 'token': token})
