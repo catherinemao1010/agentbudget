@@ -67,3 +67,13 @@ test('self-service setup is read-only, account-specific and isolated across two 
  assert.equal((await call('/api/collector/usage','POST',bobPayload,null,b.token)).status,200);
  assert.equal((await call('/api/collector/usage','POST',payload(),null,a.token)).status,401);
 });
+
+test('plan preferences require identity, same-origin requests, and remain account scoped',async()=>{
+ const {call}=setup();
+ const p={current_plan:'pro200',credit_pack_usd:20,credit_pack_amount:500};
+ assert.equal((await call('/api/collector/preferences','PUT',p,null)).status,401);
+ assert.equal((await call('/api/collector/preferences','PUT',p,'alice',null,'https://evil.test')).status,403);
+ assert.equal((await call('/api/collector/preferences','PUT',p)).status,200);
+ assert.equal((await (await call('/api/collector/usage')).json()).insights.settings.current_plan,'pro200');
+ assert.equal((await (await call('/api/collector/usage','GET',null,'bob')).json()).insights.settings.current_plan,null);
+});

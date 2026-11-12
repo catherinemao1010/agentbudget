@@ -12,7 +12,7 @@ Built with **React · TypeScript · Vite · Python · FastAPI · SQLite · MCP �
 
 **Connect the local collector once. No manual sync and no API key are needed.**
 
-1. Ask the hosted **@AgentBudget** plugin to **“set up automatic tracking”**. It returns a setup link and account code. Or open [automatic tracking setup](https://agentbudget-catherine.peiyuchen2023.chatgpt.site/?setup=1).
+1. Use **Set up with Codex** on the setup page, send the prepared request, and let Codex handle installation after sign-in and consent. No user Terminal commands are needed in a supported local Mac session. Or ask the hosted **@AgentBudget** plugin to **“set up automatic tracking”**. It returns a setup link and account code. Or open [automatic tracking setup](https://agentbudget-catherine.peiyuchen2023.chatgpt.site/?setup=1).
 2. Sign in with the same ChatGPT account as the plugin. Compare the account code before connecting.
 3. Download the collector from the setup page, create **your own** collector key, and download your connection file. No source checkout or API key is required.
 4. With Python 3.9+ installed, run this in Terminal (adjust filenames if your browser renamed them):
@@ -186,3 +186,15 @@ The dashboard saves changes within about two seconds and retries failed saves wh
 ### Deploy your own Site
 
 The source hosting manifest intentionally omits the original deployment’s project ID. Register your own Site and set its `project_id` before deployment. Keep the `BUCKET` storage binding and `mcp` capability. The demo URL above is a separate deployment; cloning this repository does not connect your records to it.
+
+## Daily usage, allowance and plan comparison
+
+Overview now shows tokens for today in the connected Mac’s time zone, daily history, tokens since each recorded Codex reset window, remaining allowance percentage, extra-usage credit balance, and a pace-based forecast. The collector reads quota metadata from local Codex usage events; it never reads or uploads login tokens. Quota observations can become stale while Codex is idle, even when collector uploads continue. A percentage is not a fixed token balance.
+
+Use `get_usage_insights` in the hosted plugin for the same reports. The existing collector must be updated for these additional fields. **Set up with Codex** can handle that update while preserving its existing connection. Browser sign-in and local execution permissions still apply; the button prepares a request rather than silently installing software.
+
+Cost figures are current-rate **API-equivalent estimates**, not subscription invoices. Standard and Fast scenarios account for cached inputs and API long-context surcharges. Unknown models leave the estimate unavailable. Rates were checked against official OpenAI API and ChatGPT Learn pricing on 2026-11-12; taxes, tools, image generation, cache writes, regional prices and negotiated discounts are excluded.
+
+The planner keeps subscriptions plus extra-usage credits separate from API pay-as-you-go. Select the actual billed tier, enter the credit-pack offer, and supply a verified alternative allowance multiple. It uses the last seven complete local days and the observed quota pace to model a 30-day workload. Without those inputs it reports missing information instead of inventing the cheapest plan. Alternative capacity is not inferred from price. Shared usage outside this Mac and changes in model mix can affect forecasts.
+
+Comparison preferences are saved per authenticated account. No purchases, upgrades or paid calls are performed by this calculator.

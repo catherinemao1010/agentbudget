@@ -4,6 +4,7 @@ const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint
 const filter = { type: 'boolean', default: false, description: 'Include clearly labeled simulated demo usage.' };
 const tool = (name, description, properties, required=[]) => ({name, description, annotations, inputSchema:{type:'object',properties,required,additionalProperties:false}});
 const tools = [
+  tool('get_usage_insights','Read daily actual tokens, tokens since the Codex reset, reported remaining allowance and credits, estimated API-equivalent cost, runway forecast, and separate subscription/credit versus API comparisons. Estimates require stated assumptions; percentages are not fixed token balances.',{}),
   tool('get_tracking_setup','Get your private account connection status and one-time automatic Codex tracking setup link. Installing this plugin alone cannot read local usage. Each user must opt in and install the macOS collector once.',{}),
   tool('get_spend_summary','Report actual Codex tokens from a connected local collector plus saved AgentBudget task usage. Includes collector freshness and scope. Subscription cost is unavailable, not zero. Demo tasks are excluded by default.',{include_demo:filter}),
   tool('list_runs','List tracked tasks with their USD costs, tokens, budgets and outcomes from the latest saved records.',{include_demo:filter,limit:{type:'integer',minimum:1,maximum:100,default:20}}),
@@ -47,12 +48,22 @@ async function execute(request,env,name,args={}) {
   const allowed=Object.keys(tools.find(t=>t.name===name).inputSchema.properties);
   if(Object.keys(args).some(k=>!allowed.includes(k))) fail('Unknown argument');
   if(args.include_demo!==undefined && typeof args.include_demo!=='boolean') fail('include_demo must be boolean');
+  if(name==='get_usage_insights') {const usage=await readCollectorSummary(request,env);return {account_code:usage.account_code,received_at:usage.received_at,...usage.insights};}
   const setup_url=new URL('/?setup=1',request.url).href;
   if(name==='get_tracking_setup') {
     const usage=await readCollectorSummary(request,env);
     return {account_code:usage.account_code,connected:usage.connected,received_at:usage.received_at,setup_url,
       requires_one_time_local_setup:true,supported_automatic_install:'macOS with Python 3.9+',interval_seconds:30,
-      steps:['Open the setup link and sign in with the same ChatGPT account as this plugin. Compare the account code.',
+      assisted_setup:{message:'Users can ask Codex to perform local setup instead of typing Terminal commands.',collector_url:new URL('/downloads/agentbudget-collector.py',request.url).href,
+        workflow:['Explain that the collector sends historical and future local token counts plus Codex quota and credit-balance metadata; request consent before enabling uploads.',
+          'Check whether a configured collector already exists on this Mac. Preserve it if its account matches; do not replace a working key unnecessarily.',
+          'Open setup_url in the signed-in browser and verify its account code matches this response. Have the user sign in if needed.',
+          'Use the dashboard to create a collector key and download the connection JSON privately. Never display the key or put it in chat, logs, or command arguments.',
+          'Download and inspect the collector source. With a local shell and Python 3.9+, run configure --config-file with the downloaded JSON, then once, then install. The agent executes these commands; the user need not open Terminal.',
+          'After a successful import remove the downloaded credential copy. Verify a later received_at via this plugin. Do not claim setup completed without that verification.',
+          'If local shell/filesystem or macOS support is unavailable, explain the limitation rather than claiming plugin installation enables tracking.']},
+      steps:['Use Set up with Codex on the setup page, then send the prepared request. Codex can handle local installation with your consent.',
+        'Sign in with the same ChatGPT account as this plugin. Compare the account code.',
         'Download the collector, create your own connection key, and download the connection file.',
         'Run the setup command shown on the page and approve collection on your Mac. After setup, uploads continue automatically at login while online and awake.'],
       privacy:'Only token counts, model names, timestamps, and hashed session identifiers are uploaded to your account. Prompts and responses stay local.',

@@ -29,3 +29,13 @@ Use AgentBudget MCP tools for requests about the user's instrumented agent costs
 - Installing or mentioning this plugin does not grant local filesystem access or start collection. Explain the one-time opt-in requirement; do not claim silent automatic installation.
 - Do not start the collector or upload local usage until the user has agreed to the scope shown by setup. Once enabled, collection continues every 30 seconds while online and awake and resumes at login. No repeated manual sync is needed.
 - Confirm success using a fresh `received_at` and actual recorded counts, not merely `connected: true`. An empty history may mean there are no supported local usage records yet.
+
+## Assisted desktop setup (no user Terminal commands)
+
+When the user asks to set up or update tracking, use `get_tracking_setup` and follow its `assisted_setup` workflow. If local execution is available, perform the download/configure/initial-upload/install steps yourself after the user consents to historical and future usage plus quota metadata uploads. Do not merely paste shell commands for the user. Keep credentials out of chat, command arguments and logs; import the dashboard connection download locally. Preserve an existing working connection. If local execution is unavailable, explain that limitation.
+
+## Daily usage, quota and billing scenarios
+
+Use `get_usage_insights` for daily tokens, tokens since reset, Codex remaining allowance, credit balance, runway and plan comparisons. Tokens are measured locally; quota percentages are reported by Codex and may include other devices and shared features. A percentage is not a fixed token balance. Report quota observation time and flag stale readings.
+
+Dollar values are current-rate API-equivalent scenarios, not actual subscription charges. Keep subscription plus extra-usage credits separate from API pay-as-you-go. Explain required credit-pack pricing, alternative allowance multiple, speed assumptions, model-rate coverage and local-history coverage. Never invent a subscription capacity or claim a cheapest plan when scenario inputs are missing. Forecasts assume the same pace and model mix; show when reset occurs first.

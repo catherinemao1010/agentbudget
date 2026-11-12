@@ -131,3 +131,45 @@ def test_setup_does_not_install_after_rejected_upload(tmp_path, monkeypatch):
         collector.setup_collector(connection)
     assert not installed
     assert not collector.CONFIG.exists()
+
+
+def test_quota_history_daily_and_exact_reset_periods(tmp_path):
+    import datetime as dt
+    root, con = setup(tmp_path)
+    current = dt.datetime.now(dt.timezone.utc)
+    reset = current + dt.timedelta(days=3)
+    recent = event('recent')
+    recent['timestamp'] = (current-dt.timedelta(hours=1)).isoformat()
+    old = event('old')
+    old['timestamp'] = (current-dt.timedelta(days=10)).isoformat()
+    quota = {'type':'event_msg','timestamp':current.isoformat(),'payload':{'type':'token_count',
+             'rate_limits':{'limit_id':'codex','primary':{'used_percent':28,'window_minutes':10080,'resets_at':int(reset.timestamp())},
+                            'plan_type':'pro','credits':{'balance':'50.5','unlimited':False},'private':'DO NOT UPLOAD'}}}
+    write(root/'one.jsonl',[recent,old,quota])
+    payload = collector.collect(con,[root])
+    a = payload['analytics']
+    assert a['quota']['windows'][0]['used_percent'] == 28
+    assert a['quota']['credit_balance'] == 50.5
+    assert sum(m['input_tokens']+m['output_tokens'] for m in a['periods']['since_reset_primary']['models']) == 140
+    assert sum(m['input_tokens']+m['output_tokens'] for d in a['daily'] for m in d['models']) == 280
+    assert 'DO NOT UPLOAD' not in json.dumps(a)
+    assert 'private-thread-id' not in json.dumps(a)
+    collector.collect(con,[root])
+    assert con.execute('SELECT count(*) FROM quota_samples').fetchone()[0] == 1
+
+
+def test_metadata_backfill_preserves_deduplicated_tokens(tmp_path):
+    root,con=setup(tmp_path)
+    write(root/'one.jsonl',[event()])
+    collector.collect(con,[root])
+    con.execute("DELETE FROM settings WHERE key='quota_schema'")
+    con.commit();con.close()
+    con=collector.database(tmp_path/'state.sqlite')
+    assert con.execute('SELECT count(*) FROM files').fetchone()[0] == 0
+    collector.collect(con,[root])
+    assert con.execute('SELECT count(*) FROM events').fetchone()[0] == 1
+
+
+def test_quota_rejects_invalid_or_unrelated_limits():
+    assert collector.clean_quota({'limit_id':'another-service'},'2026-11-12T00:00:00Z') is None
+    assert collector.clean_quota({'credits':{'balance':'NaN'}},'2026-11-12T00::00Z') is None

@@ -39,8 +39,12 @@ def database(path):
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY, session TEXT, model TEXT, time TEXT,
         input INTEGER, cached INTEGER, output INTEGER, reasoning INTEGER);
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS quota_samples(time TEXT PRIMARY KEY, value TEXT);
     ''')
     con.execute("INSERT OR IGNORE INTO settings VALUES ('device', ?)", (uuid.uuid4().hex,))
+    if not con.execute("SELECT value FROM settings WHERE key='quota_schema'").fetchone():
+        con.execute('DELETE FROM files')  # Backfill metadata once; response IDs still deduplicate tokens.
+        con.execute("INSERT INTO settings VALUES ('quota_schema','1')")
     con.commit()
     return con
 
@@ -70,6 +74,10 @@ def parse_file(con, path):
             payload = event.get('payload')
             if not isinstance(payload, dict):
                 continue
+            if event.get('type') == 'event_msg' and payload.get('type') == 'token_count':
+                quota = clean_quota(payload.get('rate_limits'), event.get('timestamp'))
+                if quota:
+                    con.execute('INSERT OR IGNORE INTO quota_samples VALUES (?,?)', (quota['observed_at'], json.dumps(quota)))
             if event.get('type') == 'turn_context':
                 candidate = payload.get('model')
                 if isinstance(candidate, str) and 0 < len(candidate) <= 100:
@@ -124,7 +132,99 @@ def collect(con, roots):
             models.append(dict(zip(('model', 'input_tokens', 'cached_tokens', 'output_tokens', 'reasoning_tokens', 'request_count'), row)))
         sessions.append({'id': session, 'started_at': first, 'last_event_at': last, 'models': models})
     return {'schema_version': 1, 'device_id': con.execute("SELECT value FROM settings WHERE key='device'").fetchone()[0],
-            'observed_at': now(), 'sessions': sessions}
+            'observed_at': now(), 'sessions': sessions, 'analytics': analytics(con)}
+
+
+def clean_quota(raw, observed):
+    if not isinstance(raw, dict) or raw.get('limit_id', 'codex') != 'codex':
+        return None
+    try:
+        stamp = dt.datetime.fromisoformat(observed.replace('Z', '+00:00')).astimezone(dt.timezone.utc).isoformat()
+        windows = []
+        for key in ('primary', 'secondary'):
+            w = raw.get(key)
+            if not isinstance(w, dict):
+                continue
+            used, minutes, reset = w.get('used_percent'), w.get('window_minutes'), w.get('resets_at')
+            if type(used) not in (int, float) or not 0 <= used <= 100 or type(minutes) is not int or not 0 < minutes <= 525600 or type(reset) is not int:
+                continue
+            windows.append({'key': key, 'used_percent': used, 'window_minutes': minutes,
+                            'resets_at': dt.datetime.fromtimestamp(reset, dt.timezone.utc).isoformat()})
+        credit = raw.get('credits') or {}
+        balance = float(credit['balance']) if credit.get('balance') is not None else None
+        if balance is not None and not 0 <= balance <= 1e12:
+            balance = None
+        plan = raw.get('plan_type')
+        return {'observed_at': stamp, 'plan_type': plan if isinstance(plan, str) and len(plan) < 40 else 'unknown',
+                'windows': windows, 'credit_balance': balance, 'unlimited_credits': credit.get('unlimited') is True}
+    except (ValueError, TypeError, AttributeError, OverflowError, OSError):
+        return None
+
+
+def analytics(con):
+    current = dt.datetime.now(dt.timezone.utc)
+    local = current.astimezone()
+    today = local.date()
+    # astimezone() on each boundary uses the Mac's historical DST rules.
+    midnight = lambda day: dt.datetime.combine(day, dt.time()).astimezone().astimezone(dt.timezone.utc)
+    latest = con.execute('SELECT value FROM quota_samples ORDER BY time DESC LIMIT 1').fetchone()
+    quota = json.loads(latest[0]) if latest else None
+    periods = {'today': (midnight(today), current),
+               'last7': (midnight(today - dt.timedelta(days=7)), midnight(today)),
+               'last30': (midnight(today - dt.timedelta(days=30)), midnight(today))}
+    if quota:
+        for w in quota['windows']:
+            reset = dt.datetime.fromisoformat(w['resets_at'])
+            start = reset - dt.timedelta(minutes=w['window_minutes'])
+            w['started_at_basis'] = 'reset time minus window duration'
+            # A same-window decrease can indicate an early/manual reset.
+            previous = None
+            for stamp, value in con.execute('SELECT time,value FROM quota_samples WHERE time>=? ORDER BY time', (start.isoformat(),)):
+                q = json.loads(value)
+                match = next((v for v in q['windows'] if v['key'] == w['key'] and v['resets_at'] == w['resets_at']), None)
+                if match:
+                    if previous is not None and match['used_percent'] < previous:
+                        start = dt.datetime.fromisoformat(stamp)
+                        w['started_at_basis'] = 'first observed decrease; reset may have occurred earlier'
+                    previous = match['used_percent']
+            w['started_at'] = start.isoformat()
+            if start <= current < reset:
+                periods['since_reset_' + w['key']] = (start, current)
+    def bucket():
+        return {}
+    daily = {(today - dt.timedelta(days=i)).isoformat(): bucket() for i in range(30, -1, -1)}
+    sums = {name: bucket() for name in periods}
+    fields = ('input_tokens', 'cached_tokens', 'output_tokens', 'reasoning_tokens', 'request_count',
+              'long_input_tokens', 'long_cached_tokens', 'long_output_tokens')
+    def add(target, model, values):
+        row = target.setdefault(model, dict(model=model, **dict.fromkeys(fields, 0)))
+        for key, value in zip(fields, values):
+            row[key] += value
+    first_event = None
+    for model, stamp, inp, cached, out, reasoning in con.execute('SELECT model,time,input,cached,output,reasoning FROM events'):
+        try:
+            when = dt.datetime.fromisoformat(stamp.replace('Z', '+00:00')).astimezone(dt.timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        if when > current:
+            continue
+        first_event = min(first_event, when) if first_event else when
+        values = (inp, cached, out, reasoning, 1, inp if inp > 272000 else 0,
+                  cached if inp > 272000 else 0, out if inp > 272000 else 0)
+        day = when.astimezone().date().isoformat()
+        if day in daily:
+            add(daily[day], model, values)
+        for name, (start, end) in periods.items():
+            if start <= when < end:
+                add(sums[name], model, values)
+    tzpath = str(Path('/etc/localtime').resolve())
+    zone = tzpath.split('/zoneinfo/')[-1] if '/zoneinfo/' in tzpath else str(local.tzinfo)
+    return {'version': 1, 'timezone': zone, 'quota': quota,
+            'history_start': first_event.isoformat() if first_event else None,
+            'daily': [{'date': day, 'models': list(rows.values())} for day, rows in daily.items()],
+            'periods': {name: {'start': start.isoformat(), 'end': end.isoformat(),
+                       'coverage_complete': bool(first_event and first_event <= start),
+                       'models': list(sums[name].values())} for name, (start, end) in periods.items()}}
 
 
 def valid_site(site):
@@ -209,7 +309,8 @@ def setup_collector(path):
     config = connection_from_file(path)
     print('Connect this Mac to: ' + config['site'])
     print('This uploads recorded Codex usage history and future token counts, model names,')
-    print('timestamps, and hashed session IDs to the account that created your connection file.')
+    print('timestamps, hashed session IDs, and reported quota/reset and credit-balance metadata')
+    print('to the account that created your connection file.')
     print('Prompts, responses, and Codex login credentials stay on this Mac.')
     print('A background service starts at login and checks every 30 seconds while online and awake.')
     print('Check that the dashboard account code matches @AgentBudget before continuing.')

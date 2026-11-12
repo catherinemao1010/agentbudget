@@ -1,3 +1,4 @@
+import {buildInsights, insightsCleanAnalytics, insightsCleanPreferences} from './insights.js';
 // Write-only, revocable device credentials. Session text never enters this API.
 const response = (body, status=200) => Response.json(body, {status, headers:{'Cache-Control':'no-store'}});
 const reject = (message, status=400) => {throw Object.assign(new Error(message), {status});};
@@ -24,12 +25,13 @@ function cleanUsage(body) {
       return out;
     })};
   });
-  return {schema_version:1,device_id:label(body.device_id),observed_at:timestamp(body.observed_at),sessions};
+  return {schema_version:1,device_id:label(body.device_id),observed_at:timestamp(body.observed_at),sessions,analytics:insightsCleanAnalytics(body.analytics)};
 }
 export async function readCollectorSummary(request,env) {
   const uid=identity(request);
   const data=await read(env,`usage/${userKey(uid)}.json`);
   const connection=await read(env,`collectors/${userKey(uid)}.json`);
+  const preferences=await read(env,`preferences/${userKey(uid)}.json`)||{};
   const byModel=new Map(),total=blank();
   for(const s of data?.sessions||[])for(const m of s.models){
     const row=byModel.get(m.model)||{model:m.model,...blank()};
@@ -37,7 +39,7 @@ export async function readCollectorSummary(request,env) {
   }
   return {account_code:(await hash('agentbudget-account:'+uid)).slice(0,12).toUpperCase(),connected:!!connection?.hash,received_at:data?.received_at||null,observed_at:data?.observed_at||null,
     session_count:data?.sessions.length||0,...total,total_tokens:total.input_tokens+total.output_tokens,
-    models:[...byModel.values()],cost_usd:null,
+    models:[...byModel.values()],cost_usd:null,insights:buildInsights(data?.analytics,preferences),
     source:'Codex local session usage records',scope:'Codex activity recorded on the connected Mac; excludes ordinary ChatGPT web chats and other devices.',
     cost_basis:'Token counts are recorded usage. Subscription billing and per-request prices are not exposed; cost is unavailable, not zero. Cached tokens are included in input; reasoning tokens are included in output.'};
 }
@@ -46,6 +48,14 @@ export async function handleCollector(request,env) {
   if(!path.startsWith('/api/collector/'))return null;
   if(!env.BUCKET)reject('Usage storage unavailable',503);
   if(path==='/api/collector/usage'&&request.method==='GET')return response(await readCollectorSummary(request,env));
+  if(path==='/api/collector/preferences'&&request.method==='PUT'){
+    const uid=identity(request);
+    if(request.headers.get('Origin')!==new URL(request.url).origin||request.headers.get('X-AgentBudget-Client')!=='dashboard')reject('Invalid origin',403);
+    const raw=await request.text();if(raw.length>5000)reject('Preferences too large');
+    const preferences=insightsCleanPreferences(JSON.parse(raw));
+    await env.BUCKET.put(`preferences/${userKey(uid)}.json`,JSON.stringify(preferences));
+    return response(preferences);
+  }
   if(path==='/api/collector/connection'&&['POST','DELETE'].includes(request.method)){
     const uid=identity(request);
     if(request.headers.get('Origin')!==new URL(request.url).origin||request.headers.get('X-AgentBudget-Client')!=='dashboard')reject('Invalid origin',403);
