@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentbudget-local"
+version = "0.1.0"
+description = "Self-hosted task budgets and observability for AI agents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "httpx>=0.28,<1", "mcp>=1.12,<2", "tiktoken>=0.9,<1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "build>=1,<2"]
+
+[project.scripts]
+agentbudget = "agentbudget.cli:main"
+agentbudget-mcp = "agentbudget.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

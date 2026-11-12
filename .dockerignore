@@ -1,0 +1,12 @@
+.git
+.venv
+node_modules
+dist
+build
+*.egg-info
+.env
+.openai
+__pycache__
+.pytest_cache
+*.sqlite*
+*.db*

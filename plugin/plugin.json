@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agentbudget",
+  "version": "0.1.0",
+  "description": "Inspect estimated costs, task budgets, and outcomes from your self-hosted AgentBudget ledger.",
+  "license": "MIT",
+  "keywords": ["agents", "cost", "budgets", "observability"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "AgentBudget",
+        "shortDescription": "Know what your instrumented agents spend.",
+        "longDescription": "Read task spending, request traces, and outcomes from your local AgentBudget API. Does not access ChatGPT or Codex internal billing.",
+        "developerName": "AgentBudget contributors",
+        "category": "Developer Tools",
+        "capabilities": ["Read"],
+        "defaultPrompt": [
+          "Show AgentBudget spending by agent.",
+          "List my budget-stopped tasks."
+        ],
+        "brandColor": "#27714f"
+      }
+    }
+  }
+}

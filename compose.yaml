@@ -1,0 +1,13 @@
+services:
+  agentbudget:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      AGENTBUDGET_API_KEY: ${AGENTBUDGET_API_KEY:?Set a strong ledger API key}
+      AGENTBUDGET_DB: /data/ledger.sqlite
+    volumes:
+      - ledger:/data
+    restart: unless-stopped
+volumes:
+  ledger:

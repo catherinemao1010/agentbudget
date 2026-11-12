@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.env
+*.sqlite*
+*.db*
+.DS_Store
+build/
+.openai/*.tar.gz
