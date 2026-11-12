@@ -55,7 +55,7 @@ const pages = [
 ];
 const snippet = `from agentbudget import BudgetClient\n\nbudget = BudgetClient()\nwith budget.task("review_pr", limit_usd=0.05) as task:\n    response = task.response(\n        "Explain Python context managers",\n        max_output_tokens=256,\n    )`;
 function App() {
-  const [page, setPage] = useState<Page>("Overview"),
+  const [page, setPage] = useState<Page>(new URLSearchParams(window.location.search).get('setup') === '1' ? 'Integrations' : 'Overview'),
     [runs, setRuns] = useState<Run[]>(loadDemo),
     [mode, setMode] = useState<"demo" | "live">("demo");
   const pluginSync = usePluginSync(runs, setRuns);

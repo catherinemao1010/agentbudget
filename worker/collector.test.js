@@ -42,3 +42,28 @@ test('malformed counts, duplicate models and anonymous uploads rejected',async()
  const dup=payload();dup.sessions[0].models.push(dup.sessions[0].models[0]);
  assert.equal((await call('/api/collector/usage','POST',dup,null,token)).status,400);
 });
+
+test('self-service setup is read-only, account-specific and isolated across two active collectors',async()=>{
+ const {call,memory}=setup();
+ const setupFor=async user=>{
+   const rpc=await (await call('/mcp','POST',{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'get_tracking_setup',arguments:{}}},user)).json();
+   return rpc.result;
+ };
+ assert.equal((await setupFor(null)).isError,true);
+ const alice=JSON.parse((await setupFor('alice')).content[0].text);
+ const bob=JSON.parse((await setupFor('bob')).content[0].text);
+ assert.equal(memory.size,0);
+ assert.equal(alice.setup_url,'https://test.example/?setup=1');
+ assert.notEqual(alice.account_code,bob.account_code);
+ assert.equal(alice.account_code,(await (await call('/api/collector/usage')).json()).account_code);
+ const a=await (await call('/api/collector/connection','POST')).json();
+ const b=await (await call('/api/collector/connection','POST',null,'bob')).json();
+ const bobPayload=payload();bobPayload.sessions[0].models[0].input_tokens=200;
+ await call('/api/collector/usage','POST',payload(),null,a.token);
+ await call('/api/collector/usage','POST',bobPayload,null,b.token);
+ assert.equal((await (await call('/api/collector/usage')).json()).total_tokens,130);
+ assert.equal((await (await call('/api/collector/usage','GET',null,'bob')).json()).total_tokens,230);
+ await call('/api/collector/connection','DELETE');
+ assert.equal((await call('/api/collector/usage','POST',bobPayload,null,b.token)).status,200);
+ assert.equal((await call('/api/collector/usage','POST',payload(),null,a.token)).status,401);
+});

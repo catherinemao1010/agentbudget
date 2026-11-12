@@ -4,6 +4,7 @@ const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint
 const filter = { type: 'boolean', default: false, description: 'Include clearly labeled simulated demo usage.' };
 const tool = (name, description, properties, required=[]) => ({name, description, annotations, inputSchema:{type:'object',properties,required,additionalProperties:false}});
 const tools = [
+  tool('get_tracking_setup','Get your private account connection status and one-time automatic Codex tracking setup link. Installing this plugin alone cannot read local usage. Each user must opt in and install the macOS collector once.',{}),
   tool('get_spend_summary','Report actual Codex tokens from a connected local collector plus saved AgentBudget task usage. Includes collector freshness and scope. Subscription cost is unavailable, not zero. Demo tasks are excluded by default.',{include_demo:filter}),
   tool('list_runs','List tracked tasks with their USD costs, tokens, budgets and outcomes from the latest saved records.',{include_demo:filter,limit:{type:'integer',minimum:1,maximum:100,default:20}}),
   tool('get_run_details','Read one tracked run, including model requests, USD costs, tokens and latency.',{run_id:{type:'string',minLength:1,maxLength:200}},['run_id']),
@@ -46,6 +47,17 @@ async function execute(request,env,name,args={}) {
   const allowed=Object.keys(tools.find(t=>t.name===name).inputSchema.properties);
   if(Object.keys(args).some(k=>!allowed.includes(k))) fail('Unknown argument');
   if(args.include_demo!==undefined && typeof args.include_demo!=='boolean') fail('include_demo must be boolean');
+  const setup_url=new URL('/?setup=1',request.url).href;
+  if(name==='get_tracking_setup') {
+    const usage=await readCollectorSummary(request,env);
+    return {account_code:usage.account_code,connected:usage.connected,received_at:usage.received_at,setup_url,
+      requires_one_time_local_setup:true,supported_automatic_install:'macOS with Python 3.9+',interval_seconds:30,
+      steps:['Open the setup link and sign in with the same ChatGPT account as this plugin. Compare the account code.',
+        'Download the collector, create your own connection key, and download the connection file.',
+        'Run the setup command shown on the page and approve collection on your Mac. After setup, uploads continue automatically at login while online and awake.'],
+      privacy:'Only token counts, model names, timestamps, and hashed session identifiers are uploaded to your account. Prompts and responses stay local.',
+      scope:usage.scope,cost_basis:usage.cost_basis};
+  }
   const {data}=await snapshot(request,env);
   const meta={synced_at:data?.synced_at||null,source:'automatically saved dashboard records',read_at:new Date().toISOString(),cost_basis:'Reported estimates, not provider billing. Cached tokens are included in input tokens.',message:data?undefined:'No records yet. Open the AgentBudget dashboard while signed in; records save automatically.'};
   const runs=(data?.runs||[]).filter(r=>args.include_demo===true||!r.is_demo);
@@ -57,6 +69,7 @@ async function execute(request,env,name,args={}) {
       request_count:dashboard.request_count+codex.request_count,
       estimated_cost_usd:codex.total_tokens?null:dashboard.estimated_cost_usd,
       dashboard_usage:dashboard,codex_usage:codex,
+      tracking_setup:{setup_url,account_code:codex.account_code,requires_one_time_local_setup:!codex.connected,instructions:codex.connected?'The collector uploads every 30 seconds while your Mac is online and awake. A connected key alone does not prove the collector is running; check received_at.':'Installing the plugin alone does not capture tokens. Open setup_url, compare the account code, and install your own collector once.'},
       cost_basis:codex.total_tokens?codex.cost_basis:meta.cost_basis,
       source:'Saved dashboard tasks and automatically collected Codex usage (separate sources)',
       message:codex.total_tokens?'Actual Codex token usage is available in codex_usage. Consult observed_at and received_at for freshness.':meta.message};

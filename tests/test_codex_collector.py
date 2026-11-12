@@ -78,3 +78,56 @@ def test_upload_uses_https_origin_only():
         with pytest.raises(ValueError):
             collector.valid_site(value)
     assert collector.valid_site('https://example.com/') == 'https://example.com'
+
+
+def prepare_installer(tmp_path, monkeypatch, consent='yes'):
+    state = tmp_path / 'state'
+    connection = tmp_path / 'connection.json'
+    connection.write_text(json.dumps({'site': 'https://test.example', 'token': 'ab_' + 'a' * 64}))
+    monkeypatch.setattr(collector, 'STATE', state)
+    monkeypatch.setattr(collector, 'CONFIG', state / 'collector.json')
+    monkeypatch.setattr(collector, 'PLIST', tmp_path / 'unused.plist')
+    monkeypatch.setattr(collector.sys, 'platform', 'darwin')
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'codex'))
+    monkeypatch.setattr('builtins.input', lambda _: consent)
+    return connection
+
+
+def test_setup_requires_opt_in_before_upload_or_install(tmp_path, monkeypatch):
+    connection = prepare_installer(tmp_path, monkeypatch, 'no')
+    actions = []
+    monkeypatch.setattr(collector, 'upload', lambda *args: actions.append('upload'))
+    monkeypatch.setattr(collector, 'install', lambda: actions.append('install'))
+    assert collector.setup_collector(connection) is False
+    assert actions == []
+    assert not collector.CONFIG.exists()
+
+
+def test_setup_verifies_upload_then_installs_private_configuration(tmp_path, monkeypatch):
+    connection = prepare_installer(tmp_path, monkeypatch)
+    actions = []
+    def upload(config, payload):
+        assert config['site'] == 'https://test.example'
+        assert payload['sessions'] == []
+        actions.append('upload')
+        return {'accepted': True}
+    def install():
+        actions.append('install')
+        assert json.loads(collector.CONFIG.read_text())['token'] == 'ab_' + 'a' * 64
+        assert collector.CONFIG.stat().st_mode & 0o777 == 0o600
+    monkeypatch.setattr(collector, 'upload', upload)
+    monkeypatch.setattr(collector, 'install', install)
+    assert collector.setup_collector(connection) is True
+    assert actions == ['upload', 'install']
+
+
+def test_setup_does_not_install_after_rejected_upload(tmp_path, monkeypatch):
+    import pytest
+    connection = prepare_installer(tmp_path, monkeypatch)
+    installed = []
+    monkeypatch.setattr(collector, 'upload', lambda *args: {'accepted': False})
+    monkeypatch.setattr(collector, 'install', lambda: installed.append(True))
+    with pytest.raises(ValueError):
+        collector.setup_collector(connection)
+    assert not installed
+    assert not collector.CONFIG.exists()

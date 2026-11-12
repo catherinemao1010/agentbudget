@@ -36,3 +36,9 @@ For the initial seeded data, explicitly ask: “Include demo records and show bu
 Tools: `get_spend_summary(include_demo=False)`, `list_runs(status='all', limit=20, include_demo=False)`, `get_run_details(run_id)`.
 
 Budget enforcement belongs to the SDK. The MCP plugin can read only the instrumented records, not host internal usage. A completed run means the SDK context finished without an exception; it is not a judgment of answer quality.
+
+## Automatic tracking for each hosted user
+
+Installing the hosted plugin does not itself read local chats. Ask **@AgentBudget: “Set up automatic tracking.”** The read-only setup tool returns a link and account code. Sign in using the same account, compare codes, and follow the one-time macOS collector setup. Each person uses their own connection file; usage remains isolated by signed-in identity. Do not redistribute a preconfigured collector key.
+
+After opt-in setup, local Codex tokens upload every 30 seconds while online and awake, including while the dashboard is closed. Ordinary ChatGPT web chats and subscription charges are not available. Windows/Linux automatic installation is not yet supported.

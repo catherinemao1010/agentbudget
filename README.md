@@ -12,16 +12,20 @@ Built with **React · TypeScript · Vite · Python · FastAPI · SQLite · MCP �
 
 **Connect the local collector once. No manual sync and no API key are needed.**
 
-1. Sign in to the hosted dashboard, open **Integrations**, and create a collector key.
-2. From this checkout (Python 3.9+; no packages needed for the collector):
+1. Ask the hosted **@AgentBudget** plugin to **“set up automatic tracking”**. It returns a setup link and account code. Or open [automatic tracking setup](https://agentbudget-catherine.peiyuchen2023.chatgpt.site/?setup=1).
+2. Sign in with the same ChatGPT account as the plugin. Compare the account code before connecting.
+3. Download the collector from the setup page, create **your own** collector key, and download your connection file. No source checkout or API key is required.
+4. With Python 3.9+ installed, run this in Terminal (adjust filenames if your browser renamed them):
 
-```sh
-python3 scripts/codex-collector.py configure --site https://agentbudget-catherine.peiyuchen2023.chatgpt.site
-# Paste your collector key at the hidden prompt.
-python3 scripts/codex-collector.py install
+```bash
+python3 ~/Downloads/agentbudget-collector.py setup --config-file ~/Downloads/agentbudget-connection.json
 ```
 
-If clipboard access is unavailable, use **Download connection file**, then run `python3 scripts/codex-collector.py configure --config-file /path/to/agentbudget-connection.json`. This file contains a private write-only key; remove the downloaded copy after importing it.
+Review the scope and type `yes` to opt in. Setup verifies an initial upload and installs the background collector at login. Remove the downloaded connection JSON after setup; the imported key has owner-only permissions. Never share it with other users. Automatic installation currently supports macOS only.
+
+Each user signs in and opts in separately. Installing or mentioning the plugin alone cannot access local usage. Setup sends recorded local history and new usage; after setup the website may be closed. The hosted plugin's `get_tracking_setup` is read-only and does not install software or create credentials.
+
+For source-checkout users, the separate `configure --site URL` and `install` commands remain available.
 
 On macOS, this installs a user LaunchAgent that starts at login and runs every 30 seconds while your Mac is awake. The website can be closed. Open Overview for actual counts, or ask the hosted `@AgentBudget` plugin for your actual Codex usage. The web page refreshes its usage report every 10 seconds. `get_spend_summary` returns `codex_usage` with source, coverage, `observed_at`, and `received_at`; `list_runs` and `get_run_details` continue to describe SDK/dashboard tasks, not Codex sessions.
 
@@ -169,7 +173,7 @@ MIT. See [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Sites provisions the private AgentBudget plugin when publishing the Worker with the `mcp` capability. Install/connect it in Plugins → Personal → Created by you, then select AgentBudget with `@` in a new chat. Open the dashboard while signed in; **Automatic sync** saves changes without a button. Simulations are excluded by default: explicitly ask to include demo runs.
 
-The three read-only tools are `get_spend_summary`, `list_runs`, and `get_run_details`. The summary includes actual Codex usage from the connected collector and separate saved task estimates. If Codex usage is present, the combined cost is null (unknown), while `dashboard_usage` retains task estimates. They cannot read provider bills. Cached tokens are a subset of input tokens, not additional tokens.
+The hosted read-only tools are `get_tracking_setup`, `get_spend_summary`, `list_runs`, and `get_run_details`. The local SDK server retains the three ledger reporting tools. The summary includes actual Codex usage from the connected collector and separate saved task estimates. If Codex usage is present, the combined cost is null (unknown), while `dashboard_usage` retains task estimates. They cannot read provider bills. Cached tokens are a subset of input tokens, not additional tokens.
 
 Hosted data is isolated by the authenticated Site user ID supplied by Sites. The automatic sync API validates and whitelists fields, checks the same-origin request, and merges changes with conditional R2 writes to preserve unrelated concurrent edits. Existing cloud records load on startup; new browser seeds cannot overwrite them. Concurrent edits to the same run use the last successful save. It stores task names and usage metadata; no API keys or prompt/response bodies. The local Python service has separate authentication and storage. Self-hosting this Worker requires a trusted authentication gateway that strips client-supplied identity headers, and a BUCKET binding; do not expose it directly without that gateway.
 

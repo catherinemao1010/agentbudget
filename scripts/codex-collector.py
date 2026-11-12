@@ -192,19 +192,70 @@ def install():
     print('Installed automatic Codex usage collection every 30 seconds at login.')
 
 
+def connection_from_file(path):
+    connection = json.loads(path.read_text())
+    site = valid_site(connection['site'])
+    token = connection['token']
+    if not isinstance(token, str) or not token.startswith('ab_') or len(token) != 67 or any(c not in '0123456789abcdef' for c in token[3:]):
+        raise ValueError('Invalid collector key')
+    return {'site': site, 'token': token}
+
+
+def setup_collector(path):
+    if sys.platform != 'darwin':
+        raise ValueError('Automatic setup currently supports macOS only.')
+    if sys.version_info < (3, 9):
+        raise ValueError('Install Python 3.9 or newer first.')
+    config = connection_from_file(path)
+    print('Connect this Mac to: ' + config['site'])
+    print('This uploads recorded Codex usage history and future token counts, model names,')
+    print('timestamps, and hashed session IDs to the account that created your connection file.')
+    print('Prompts, responses, and Codex login credentials stay on this Mac.')
+    print('A background service starts at login and checks every 30 seconds while online and awake.')
+    print('Check that the dashboard account code matches @AgentBudget before continuing.')
+    if input('Enable automatic tracking on this Mac? Type yes to continue: ').strip().lower() != 'yes':
+        print('Cancelled. Your existing connection has not changed.')
+        return False
+    # Stop any existing service before changing accounts. Install restarts it only
+    # after a successful first upload, so an invalid key never reports success.
+    if PLIST.exists():
+        subprocess.run(['launchctl', 'bootout', 'gui/' + str(os.getuid()), str(PLIST)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    codex = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex')))
+    con = database(STATE / 'usage.sqlite')
+    try:
+        run_once(config, con, [codex / 'sessions', codex / 'archived_sessions'])
+    finally:
+        con.close()
+    secure_json(CONFIG, config)
+    install()
+    print('Connected. Ask @AgentBudget for your token usage; no manual sync is needed.')
+    print('Remove the downloaded connection JSON now; it contains your private write-only key.')
+    print('To stop: python3 "' + str(STATE / 'collector.py') + '" uninstall')
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['configure', 'once', 'run', 'status', 'install', 'uninstall'])
+    parser.add_argument('command', choices=['setup', 'configure', 'once', 'run', 'status', 'install', 'uninstall'])
     parser.add_argument('--site')
     parser.add_argument('--config-file', type=Path)
     parser.add_argument('--local-only', action='store_true')
     args = parser.parse_args()
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if args.command == 'setup':
+        if not args.config_file:
+            parser.error('Download your connection file from Integrations and pass --config-file PATH.')
+        try:
+            setup_collector(args.config_file)
+        except Exception as error:
+            message = 'HTTP ' + str(error.code) if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+            print('Setup did not complete (' + message + '). Check your connection file, internet access, and Python version; then rerun setup. Background tracking has not been confirmed.', file=sys.stderr)
+            raise SystemExit(1)
+        return
     if args.command == 'configure':
         if args.config_file:
-            connection = json.loads(args.config_file.read_text())
-            site = valid_site(connection['site'])
-            token = connection['token']
+            connection = connection_from_file(args.config_file)
+            site, token = connection['site'], connection['token']
         else:
             site = valid_site(args.site or input('AgentBudget HTTPS site: ').strip())
             token = getpass.getpass('Collector key from Integrations (hidden): ').strip()

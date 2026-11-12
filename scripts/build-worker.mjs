@@ -9,6 +9,7 @@ async function walk(dir,prefix='') {
   }
 }
 await walk('dist');
+assets['/downloads/agentbudget-collector.py']={body:(await readFile('scripts/codex-collector.py')).toString('base64'),type:'text/x-python; charset=utf-8'};
 await mkdir('dist/server',{recursive:true});
 await mkdir('dist/.openai',{recursive:true});
 const collector=(await readFile('worker/collector.js','utf8')).replaceAll('export async function','async function');

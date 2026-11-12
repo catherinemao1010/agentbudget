@@ -35,7 +35,7 @@ export async function readCollectorSummary(request,env) {
     const row=byModel.get(m.model)||{model:m.model,...blank()};
     for(const k of fields){total[k]+=m[k];row[k]+=m[k];}byModel.set(m.model,row);
   }
-  return {connected:!!connection?.hash,received_at:data?.received_at||null,observed_at:data?.observed_at||null,
+  return {account_code:(await hash('agentbudget-account:'+uid)).slice(0,12).toUpperCase(),connected:!!connection?.hash,received_at:data?.received_at||null,observed_at:data?.observed_at||null,
     session_count:data?.sessions.length||0,...total,total_tokens:total.input_tokens+total.output_tokens,
     models:[...byModel.values()],cost_usd:null,
     source:'Codex local session usage records',scope:'Codex activity recorded on the connected Mac; excludes ordinary ChatGPT web chats and other devices.',

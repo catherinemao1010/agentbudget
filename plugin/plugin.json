@@ -1,22 +1,30 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agentbudget",
-  "version": "0.1.0",
-  "description": "Inspect estimated costs, task budgets, and outcomes from your self-hosted AgentBudget ledger.",
+  "version": "0.3.0",
+  "description": "Private agent usage reports, with opt-in automatic Codex token tracking through a local collector.",
   "license": "MIT",
-  "keywords": ["agents", "cost", "budgets", "observability"],
+  "keywords": [
+    "agents",
+    "cost",
+    "budgets",
+    "observability"
+  ],
   "extensions": {
     "com.openai": {
       "interface": {
         "displayName": "AgentBudget",
-        "shortDescription": "Know what your instrumented agents spend.",
-        "longDescription": "Read task spending, request traces, and outcomes from your local AgentBudget API. Does not access ChatGPT or Codex internal billing.",
+        "shortDescription": "Track agent tokens with private usage reports.",
+        "longDescription": "Read tracked agent costs and outcomes. Hosted users can opt in to automatic Codex token tracking with a one-time macOS collector setup. Plugin installation alone does not read chat usage; subscription billing is unavailable.",
         "developerName": "AgentBudget contributors",
         "category": "Developer Tools",
-        "capabilities": ["Read"],
+        "capabilities": [
+          "Read"
+        ],
         "defaultPrompt": [
           "Show AgentBudget spending by agent.",
-          "List my budget-stopped tasks."
+          "List my budget-stopped tasks.",
+          "Help me set up automatic Codex token tracking."
         ],
         "brandColor": "#27714f"
       }

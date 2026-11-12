@@ -21,3 +21,11 @@ Use AgentBudget MCP tools for requests about the user's instrumented agent costs
 - Codex cost is null/unavailable, not zero. Do not convert subscription usage into an invented charge. `dashboard_usage` retains separate task cost estimates.
 - Coverage is local Codex usage records on one connected Mac; excludes ordinary ChatGPT web chats, other devices, and logs without per-response usage events.
 - `list_runs`/`get_run_details` and the local stdio server still refer to the SDK ledger. Do not confuse task runs with collected Codex sessions.
+
+## First-time automatic tracking
+
+- For the hosted plugin, use `get_tracking_setup` when a user asks to enable tracking, or when no collector is connected. Share its setup URL and account code. The `get_spend_summary.tracking_setup` field also provides these details.
+- Each user must sign in as themselves, compare the dashboard account code with the tool's code, download their own connection file and collector, and run the macOS setup command once. Never reuse another person's collector key or connection file.
+- Installing or mentioning this plugin does not grant local filesystem access or start collection. Explain the one-time opt-in requirement; do not claim silent automatic installation.
+- Do not start the collector or upload local usage until the user has agreed to the scope shown by setup. Once enabled, collection continues every 30 seconds while online and awake and resumes at login. No repeated manual sync is needed.
+- Confirm success using a fresh `received_at` and actual recorded counts, not merely `connected: true`. An empty history may mean there are no supported local usage records yet.
