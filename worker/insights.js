@@ -72,6 +72,23 @@ export function buildInsights(a,p={},clock=Date.now()){
   const periods=Object.fromEntries(Object.entries(a.periods).map(([k,v])=>[k,{...v,...estimate(v.models)}]));
   const daily=a.daily.map(d=>({...d,...estimate(d.models)}));
   const q=a.quota;
+  const planReadingFresh=!!q&&clock-Date.parse(q.observed_at)<3600000&&Date.parse(q.observed_at)<=clock+60000;
+  // The usage feed identifies a plan family, not an invoice or Pro price tier.
+  // Keep automatic defaults separate from saved user choices so they follow
+  // later plan changes and never turn an inferred list price into a paid price.
+  const automaticPlan=planReadingFresh&&q.plan_type==='plus'?'plus':null;
+  const effectivePlan=settings.current_plan||automaticPlan;
+  const creditPriceSaved=settings.credit_pack_usd!==null&&settings.credit_pack_amount!==null;
+  const billingDetection={
+    reported_plan:q?.plan_type||null,observed_at:q?.observed_at||null,fresh:planReadingFresh,
+    automatic_plan:automaticPlan,effective_plan:effectivePlan,
+    plan_source:settings.current_plan?'saved_selection':automaticPlan?'codex_reported_family':'unavailable',
+    subscription_price_source:effectivePlan?'published_usd_list_price':'unavailable',
+    credit_price_source:creditPriceSaved?'saved_user_offer':'unavailable',
+    plan_message:!q?'Waiting for a Codex plan reading.':!planReadingFresh?'The last plan reading is stale. Use Codex to refresh automatic detection.':q.plan_type==='pro'?'Pro detected automatically. Codex does not report whether this is the $100, $200 or $500 tier. Choose your billed tier once.':automaticPlan?'Plus detected automatically. The comparison uses its published $20/month USD list price, not an invoice.':'Codex reports '+q.plan_type+'. This plan is not in the individual subscription comparison.',
+    credit_message:creditPriceSaved?'Using your saved credit-pack offer. Update it only if your purchase price changes.':'Codex reports the credit balance, but not the purchase price. Enter an offer once; it is saved privately for future comparisons.'
+  };
+  if(planReadingFresh&&q.plan_type==='pro'&&settings.current_plan?.startsWith('pro'))billingDetection.plan_message='Pro detected automatically. Using your saved '+PRICING.plans.find(v=>v.id===settings.current_plan).name+' tier; change it only if your subscription changes.';
   const windows=(q?.windows||[]).map(w=>{
     const observed=Date.parse(q.observed_at),start=Date.parse(w.started_at),reset=Date.parse(w.resets_at);
     const fresh=clock-observed<3600000&&observed<=clock+60000&&reset>clock;
@@ -88,7 +105,7 @@ export function buildInsights(a,p={},clock=Date.now()){
   const monthlyApi=reliable&&observedPeriod.api_equivalent_usd!==null?observedPeriod.api_equivalent_usd*30/7:null;
   const monthlyCredits=reliable&&observedPeriod.credit_equivalent!==null?observedPeriod.credit_equivalent*30/7:null;
   const usdPerCredit=settings.credit_pack_usd!==null&&settings.credit_pack_amount?settings.credit_pack_usd/settings.credit_pack_amount:null;
-  const current=PRICING.plans.find(v=>v.id===settings.current_plan),alternative=PRICING.plans.find(v=>v.id===settings.alternative_plan);
+  const current=PRICING.plans.find(v=>v.id===effectivePlan),alternative=PRICING.plans.find(v=>v.id===settings.alternative_plan);
   const planMatches=!current||!q||q.plan_type==='unknown'||(current.id.startsWith('pro')?q.plan_type.startsWith('pro'):q.plan_type===current.id);
   const quotaReliable=planMatches&&windows.length>0&&windows.every(w=>w.fresh&&w.projected_window_used_percent!==null);
   const projectedPct=quotaReliable?Math.max(...windows.map(w=>w.projected_window_used_percent)):null;
@@ -103,12 +120,13 @@ export function buildInsights(a,p={},clock=Date.now()){
   if(!reliable)recommendation='A full seven days of local history is needed for a monthly projection.';
   else if(!planMatches)recommendation='The selected current plan does not match the plan reported by Codex. Select your actual billed plan before comparing.';
   else if(!quotaReliable)recommendation='Waiting for a fresh Codex allowance reading and at least six hours of the current window.';
+  else if(!current&&q?.plan_type==='pro')recommendation='Pro is detected. Choose your billed Pro tier once; the usage feed does not include its price.';
   else if(currentScenario?.monthly_total_usd!=null&&alternativeScenario?.monthly_total_usd!=null){
     const cheaper=currentScenario.monthly_total_usd<=alternativeScenario.monthly_total_usd?currentScenario:alternativeScenario;
     recommendation=cheaper.plan+' has the lower modeled monthly cost under your allowance and speed assumptions.';
   } else if(currentScenario?.monthly_top_up_credits===0)recommendation='Your current plan is on pace to reset before its allowance runs out. Extra credits or an upgrade are not indicated by this pace.';
   else if(currentScenario)recommendation='Compare your current plan plus projected top-ups with an alternative. Enter that plan’s allowance multiple; price alone does not establish its capacity.';
-  return {available:true,timezone:a.timezone,history_start:a.history_start,periods,daily,settings,pricing:PRICING,
+  return {available:true,timezone:a.timezone,history_start:a.history_start,periods,daily,settings,billing_detection:billingDetection,pricing:PRICING,
     quota:q?{...q,windows,token_balance:null,token_balance_reason:'Codex reports allowance percentages, not a fixed number of remaining tokens.'}:null,
     comparison:{basis:'Last 7 complete local calendar days projected to 30 days. Same model mix and selected speed; estimates, not invoices.',monthly_api_equivalent_usd:monthlyApi,monthly_credit_equivalent:monthlyCredits,usd_per_credit:usdPerCredit,current:currentScenario,alternative:alternativeScenario,recommendation,
       api_vs_subscription:monthlyApi!==null&&currentScenario?.monthly_total_usd!=null?(monthlyApi<currentScenario.monthly_total_usd?'API pay-as-you-go has the lower modeled compute cost. It does not include the same subscription features.':'The selected subscription plus modeled top-ups costs less than the API-equivalent workload.'):'API and subscription totals need complete history and the selected plan assumptions before comparison.',

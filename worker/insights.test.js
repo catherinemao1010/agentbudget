@@ -43,3 +43,35 @@ test('malformed data rejected, unknown keys removed, zero pace has no invented f
  const r=buildInsights(clean,{},clock);assert.equal(r.quota.windows[0].forecast,'insufficient_history');
  a.daily[0].models=[{...model,cached_tokens:1000001}];assert.throws(()=>insightsCleanAnalytics(a));
 });
+test('fresh Plus is automatic without persisting an inferred billed price',()=>{
+ const a=fixture();a.quota.plan_type='plus';
+ const r=buildInsights(insightsCleanAnalytics(a),{},clock);
+ assert.equal(r.settings.current_plan,null);
+ assert.equal(r.billing_detection.automatic_plan,'plus');
+ assert.equal(r.billing_detection.plan_source,'codex_reported_family');
+ assert.equal(r.comparison.current.monthly_subscription_usd,20);
+ assert.equal(r.billing_detection.subscription_price_source,'published_usd_list_price');
+ assert.equal(r.billing_detection.credit_price_source,'unavailable');
+ assert.equal(r.comparison.usd_per_credit,null);
+ a.quota.plan_type='pro';
+ const changed=buildInsights(insightsCleanAnalytics(a),{},clock);
+ assert.equal(changed.comparison.current,null);
+ assert.equal(changed.billing_detection.automatic_plan,null);
+ assert.match(changed.billing_detection.plan_message,/does not report/);
+});
+test('saved billing inputs override automatic defaults and retain their provenance',()=>{
+ const r=buildInsights(insightsCleanAnalytics(fixture()),{current_plan:'pro200',credit_pack_usd:20,credit_pack_amount:500},clock);
+ assert.equal(r.billing_detection.effective_plan,'pro200');
+ assert.equal(r.billing_detection.plan_source,'saved_selection');
+ assert.equal(r.billing_detection.credit_price_source,'saved_user_offer');
+ assert.equal(r.comparison.usd_per_credit,.04);
+ assert.equal(r.comparison.current.monthly_subscription_usd,200);
+});
+test('stale, future and unsupported readings never auto-select a plan',()=>{
+ for(const [family,at] of [['plus',clock+7200000],['plus',clock-120000],['business',clock],['unknown',clock]]){
+  const a=fixture();a.quota.plan_type=family;
+  const r=buildInsights(insightsCleanAnalytics(a),{},at);
+  assert.equal(r.billing_detection.automatic_plan,null);
+  assert.equal(r.comparison.current,null);
+ }
+});
