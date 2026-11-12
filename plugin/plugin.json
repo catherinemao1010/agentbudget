@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agentbudget",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Private agent usage reports, with opt-in automatic Codex token tracking through a local collector.",
   "license": "MIT",
   "keywords": [
@@ -23,7 +23,7 @@
         ],
         "defaultPrompt": [
           "Set up automatic tracking on this Mac without asking me to use Terminal.",
-          "Show today\u2019s tokens, remaining allowance and reset forecast.",
+          "How long will my allowance last at this pace, and would a cheaper plan save money?",
           "Compare my subscription plus credits with API pay-as-you-go."
         ],
         "brandColor": "#27714f"

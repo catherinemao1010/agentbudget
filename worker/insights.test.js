@@ -75,3 +75,39 @@ test('stale, future and unsupported readings never auto-select a plan',()=>{
   assert.equal(r.comparison.current,null);
  }
 });
+test('report leads with local runout time and never treats allowance as all access',()=>{
+ const r=buildInsights(insightsCleanAnalytics(fixture(80)),{},clock).report;
+ assert.equal(r.runway.hours_remaining,12);
+ assert.match(r.runway.text,/12 hours/);
+ assert.match(r.runway.text,/Nov 12, 6:00 PM CST/);
+ assert.match(r.runway.text,/before the reset/);
+ assert.equal(r.cheaper_plan.status,'needs_details');
+ assert.match(r.cheaper_plan.text,/less allowance would also need top-ups/);
+ assert.match(r.assumption,/not when paid credits or all access will end/);
+ const stale=buildInsights(insightsCleanAnalytics(fixture(80)),{},clock+7200000).report;
+ assert.equal(stale.runway.hours_remaining,null);assert.match(stale.runway.text,/stale/);
+ const reset=buildInsights(insightsCleanAnalytics(fixture(10)),{},clock).report;
+ assert.equal(reset.runway.hours_remaining,null);assert.match(reset.runway.text,/not projected to run out first/);
+});
+test('cheaper-plan verdict includes top-ups and may favor either tier',()=>{
+ const a=insightsCleanAnalytics(fixture(80));
+ const p={current_plan:'pro200',alternative_plan:'pro100',alternative_allowance_multiple:.5,credit_pack_usd:10,credit_pack_amount:1};
+ const expensive=buildInsights(a,p,clock).report.cheaper_plan;
+ assert.equal(expensive.status,'keep_current');assert.ok(expensive.monthly_savings_usd<0);
+ const cheaper=buildInsights(a,{...p,credit_pack_usd:.04},clock).report.cheaper_plan;
+ assert.equal(cheaper.status,'cheaper_plan_saves');assert.ok(cheaper.monthly_savings_usd>0);
+ assert.match(cheaper.text,/included allowance alone would not cover/);
+ const noOffer=buildInsights(a,{...p,credit_pack_usd:null},clock).report.cheaper_plan;
+ assert.equal(noOffer.status,'needs_details');assert.equal(noOffer.monthly_savings_usd,null);
+ const low=buildInsights(insightsCleanAnalytics(fixture(10)),{...p,credit_pack_usd:null},clock).report.cheaper_plan;
+ assert.equal(low.status,'cheaper_plan_saves');assert.equal(low.monthly_savings_usd,100);
+});
+test('report chooses the first exhausting window and suppresses unsupported downgrade claims',()=>{
+ const a=fixture(80);a.quota.windows.push({...a.quota.windows[0],key:'secondary',used_percent:90,window_minutes:300,started_at:'2026-11-12T11:00:00Z',resets_at:'2026-11-12T16:00:00Z'});
+ const r=buildInsights(insightsCleanAnalytics(a),{current_plan:'pro200',alternative_plan:'pro100'},clock).report;
+ assert.equal(r.runway.window,'secondary');
+ assert.ok(r.runway.hours_remaining<1);
+ assert.equal(r.cheaper_plan.status,'needs_details');
+ const unsupported=buildInsights(insightsCleanAnalytics(fixture()),{current_plan:'pro200',alternative_plan:'pro500'},clock).report.cheaper_plan;
+ assert.equal(unsupported.status,'needs_details');assert.equal(unsupported.monthly_savings_usd,null);
+});

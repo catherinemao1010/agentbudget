@@ -65,9 +65,54 @@ function insightEstimate(rows,speed='standard'){
   const multiple={standard:1,fast:2,ultrafast:6}[speed];
   return {total_tokens:tokens,api_equivalent_usd:missing.length?null:api*multiple,credit_equivalent:missing.length?null:credits*multiple,known_model_api_subtotal_usd:api*multiple,unpriced_models:[...new Set(missing)]};
 }
+function insightReport({windows,current,alternative,projectedPct,reliable,planMatches,settings},clock,timezone){
+  let formatter;
+  try{formatter=new Intl.DateTimeFormat('en-US',{timeZone:timezone,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}catch{timezone='UTC';formatter=new Intl.DateTimeFormat('en-US',{timeZone:'UTC',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}
+  const date=v=>formatter.format(new Date(v));
+  const duration=hours=>{
+    const total=Math.max(0,Math.round(hours));
+    if(total<1)return 'less than an hour';
+    const days=Math.floor(total/24),rest=total%24;
+    return [days?days+' day'+(days===1?'':'s'):'',rest?rest+' hour'+(rest===1?'':'s'):''].filter(Boolean).join(' ');
+  };
+  const forecasts=windows.map(w=>{
+    const hours=w.fresh&&w.exhausts_at?Math.max(0,(Date.parse(w.exhausts_at)-clock)/3600000):w.forecast==='exhausted'?0:null;
+    const windowName=w.window_minutes>=1440?(w.window_minutes/1440)+'-day':(w.window_minutes/60)+'-hour';
+    const reset=date(w.resets_at);
+    let text='There is not enough usage history yet to forecast this allowance.';
+    if(w.forecast==='stale')text='The quota reading is stale; the time-to-exhaustion forecast is unavailable until it refreshes.';
+    else if(w.forecast==='exhausted')text='Your '+windowName+' included allowance is exhausted. It resets '+reset+'.';
+    else if(w.forecast==='runs_out_before_reset')text='At the same pace, your '+windowName+' included allowance will run out in about '+duration(hours)+' ('+date(w.exhausts_at)+'), before the reset on '+reset+'.';
+    else if(w.forecast==='reset_first')text='At the same pace, your '+windowName+' included allowance should last until it resets '+reset+'; it is not projected to run out first.';
+    return {window:w.key,status:w.forecast,remaining_percent:w.remaining_percent,hours_remaining:hours,exhausts_at:w.exhausts_at,resets_at:w.resets_at,text};
+  });
+  const active=forecasts.filter(w=>w.hours_remaining!==null).sort((a,b)=>a.hours_remaining-b.hours_remaining);
+  const selected=active[0]||forecasts.find(w=>w.status==='stale'||w.status==='insufficient_history')||forecasts[0];
+  const runway=selected||{status:'unavailable',hours_remaining:null,exhausts_at:null,text:'No Codex allowance reading is available yet.'};
+  const cheaperOptions=current?PRICING.plans.filter(p=>p.monthly_usd<current.monthly_subscription_usd).map(p=>({id:p.id,name:p.name,monthly_usd:p.monthly_usd})):[];
+  const minimum=projectedPct===null?null:projectedPct/100;
+  const cheaper={status:'needs_details',text:'Cannot determine whether a cheaper plan is better yet.',monthly_savings_usd:null,minimum_allowance_multiple_to_avoid_topups:minimum,lower_priced_plans:cheaperOptions,missing_inputs:[]};
+  if(!current){cheaper.missing_inputs.push('current subscription price tier');cheaper.text+=' Confirm your exact subscription tier once.';}
+  else if(!planMatches){cheaper.status='plan_mismatch';cheaper.text='Your saved tier does not match the detected plan. Update it before judging a downgrade.';}
+  else if(!reliable||projectedPct===null){cheaper.status='insufficient_data';cheaper.text='A cheaper-plan verdict needs complete recent usage history and a fresh allowance forecast.';}
+  else if(!cheaperOptions.length){cheaper.status='lowest_modeled_tier';cheaper.text='Your current plan is already the lowest-priced subscription in this comparison. Free and Go are not modeled.';}
+  else if(!alternative||alternative.monthly_subscription_usd>=current.monthly_subscription_usd){cheaper.missing_inputs.push('a lower-priced alternative and its verified allowance');cheaper.text='Choose a lower-priced plan to compare. Its subscription fee alone does not establish whether it will save money after top-ups.';}
+  else if(!settings.alternative_allowance_multiple){cheaper.missing_inputs.push('alternative allowance relative to current plan');cheaper.text='The alternative has a lower subscription fee, but its allowance is needed to estimate top-ups and total savings.';}
+  else if(current.monthly_total_usd===null||alternative.monthly_total_usd===null){cheaper.missing_inputs.push('credit-pack purchase price and amount');cheaper.text='This comparison includes estimated top-ups. Enter your credit-pack offer once to compare total costs.';}
+  else{
+    const savings=current.monthly_total_usd-alternative.monthly_total_usd;
+    cheaper.monthly_savings_usd=savings;
+    cheaper.status=savings>.005?'cheaper_plan_saves':savings<-.005?'keep_current':'no_material_savings';
+    const money=n=>'$'+n.toFixed(2);
+    cheaper.text=savings>.005?alternative.plan+' is cheaper by about '+money(savings)+'/month at this pace ('+money(alternative.monthly_total_usd)+' vs '+money(current.monthly_total_usd)+', including modeled top-ups).':savings<-.005?'Keep '+current.plan+' under these assumptions: '+alternative.plan+' has a lower subscription fee but costs about '+money(-savings)+'/month more after modeled top-ups.':'The lower-priced plan has no material modeled savings after top-ups.';
+    if(alternative.monthly_top_up_credits>0)cheaper.text+=' Its included allowance alone would not cover this pace.';
+  }
+  if(minimum!==null&&minimum>1&&cheaper.status==='needs_details')cheaper.text+=' Your current pace exceeds your current included allowance, so a plan with less allowance would also need top-ups.';
+  return {generated_at:new Date(clock).toISOString(),timezone,runway,allowance_windows:forecasts,cheaper_plan:cheaper,assumption:'Same average usage pace over the reported window. This forecasts included allowance, not when paid credits or all access will end. Plan costs use saved assumptions and published USD list prices; feature differences may matter.'};
+}
 export function buildInsights(a,p={},clock=Date.now()){
   const settings=insightsCleanPreferences(p);
-  if(!a)return {available:false,settings,pricing:PRICING,message:'Update the local collector to enable daily usage, allowance, and estimates.'};
+  if(!a)return {available:false,report:{runway:{status:'unavailable',text:'Connect or update the collector for an allowance forecast.'},cheaper_plan:{status:'unavailable',text:'Usage and billing details are needed for a cheaper-plan comparison.'}},settings,pricing:PRICING,message:'Update the local collector to enable daily usage, allowance, and estimates.'};
   const estimate=rows=>insightEstimate(rows,settings.speed);
   const periods=Object.fromEntries(Object.entries(a.periods).map(([k,v])=>[k,{...v,...estimate(v.models)}]));
   const daily=a.daily.map(d=>({...d,...estimate(d.models)}));
@@ -93,7 +138,8 @@ export function buildInsights(a,p={},clock=Date.now()){
     const observed=Date.parse(q.observed_at),start=Date.parse(w.started_at),reset=Date.parse(w.resets_at);
     const fresh=clock-observed<3600000&&observed<=clock+60000&&reset>clock;
     const elapsed=(observed-start)/86400000;
-    const pace=elapsed>=.25&&w.used_percent>0?w.used_percent/elapsed:null;
+    const minimumElapsedMs=Math.min(6*3600000,w.window_minutes*60000*.2);
+    const pace=observed-start>=minimumElapsedMs&&w.used_percent>0?w.used_percent/elapsed:null;
     const days=pace?(100-w.used_percent)/pace:null;
     const exhaustion=days===null?null:observed+days*86400000;
     const projected=pace?pace*(reset-start)/86400000:null;
@@ -119,14 +165,15 @@ export function buildInsights(a,p={},clock=Date.now()){
   let recommendation='Choose your current plan and enter your credit-pack price to compare costs.';
   if(!reliable)recommendation='A full seven days of local history is needed for a monthly projection.';
   else if(!planMatches)recommendation='The selected current plan does not match the plan reported by Codex. Select your actual billed plan before comparing.';
-  else if(!quotaReliable)recommendation='Waiting for a fresh Codex allowance reading and at least six hours of the current window.';
+  else if(!quotaReliable)recommendation='Waiting for a fresh Codex allowance reading and enough history in the current window.';
   else if(!current&&q?.plan_type==='pro')recommendation='Pro is detected. Choose your billed Pro tier once; the usage feed does not include its price.';
   else if(currentScenario?.monthly_total_usd!=null&&alternativeScenario?.monthly_total_usd!=null){
     const cheaper=currentScenario.monthly_total_usd<=alternativeScenario.monthly_total_usd?currentScenario:alternativeScenario;
     recommendation=cheaper.plan+' has the lower modeled monthly cost under your allowance and speed assumptions.';
   } else if(currentScenario?.monthly_top_up_credits===0)recommendation='Your current plan is on pace to reset before its allowance runs out. Extra credits or an upgrade are not indicated by this pace.';
   else if(currentScenario)recommendation='Compare your current plan plus projected top-ups with an alternative. Enter that plan’s allowance multiple; price alone does not establish its capacity.';
-  return {available:true,timezone:a.timezone,history_start:a.history_start,periods,daily,settings,billing_detection:billingDetection,pricing:PRICING,
+  const report=insightReport({windows,current:currentScenario,alternative:alternativeScenario,projectedPct,reliable,planMatches,settings},clock,a.timezone);
+  return {available:true,report,timezone:a.timezone,history_start:a.history_start,periods,daily,settings,billing_detection:billingDetection,pricing:PRICING,
     quota:q?{...q,windows,token_balance:null,token_balance_reason:'Codex reports allowance percentages, not a fixed number of remaining tokens.'}:null,
     comparison:{basis:'Last 7 complete local calendar days projected to 30 days. Same model mix and selected speed; estimates, not invoices.',monthly_api_equivalent_usd:monthlyApi,monthly_credit_equivalent:monthlyCredits,usd_per_credit:usdPerCredit,current:currentScenario,alternative:alternativeScenario,recommendation,
       api_vs_subscription:monthlyApi!==null&&currentScenario?.monthly_total_usd!=null?(monthlyApi<currentScenario.monthly_total_usd?'API pay-as-you-go has the lower modeled compute cost. It does not include the same subscription features.':'The selected subscription plus modeled top-ups costs less than the API-equivalent workload.'):'API and subscription totals need complete history and the selected plan assumptions before comparison.',

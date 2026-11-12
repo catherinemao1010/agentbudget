@@ -21,7 +21,7 @@ export function UsageInsights({data,onSaved}:{data:Insights|undefined;onSaved:()
  const days=(data.daily||[]).slice(-14),max=Math.max(1,...days.map(d=>d.total_tokens)),comparison=data.comparison;
  const setNumber=(key:keyof PlanningSettings,v:string)=>setDraft(d=>({...d,[key]:v===''?null:Number(v)}));
  async function save(e:React.FormEvent){e.preventDefault();setSaving(true);setMessage('');try{const r=await fetch('/api/collector/preferences',{method:'PUT',headers:{'Content-Type':'application/json','X-AgentBudget-Client':'dashboard'},body:JSON.stringify(draft)});if(!r.ok)throw Error('Could not save your comparison settings. Sign in and try again.');await onSaved();setMessage('Saved to your private account.');}catch(e){setMessage((e as Error).message);}finally{setSaving(false);}}
- const forecast=(w:Window)=>w.forecast==='stale'?'Waiting for a fresh quota reading':w.forecast==='exhausted'?'Included allowance exhausted':w.forecast==='reset_first'?'Reset comes before projected exhaustion':w.forecast==='runs_out_before_reset'?`At this pace: ${date(w.exhausts_at!)}`:'Forecast available after six hours of this window';
+ const forecast=(w:Window)=>w.forecast==='stale'?'Waiting for a fresh quota reading':w.forecast==='exhausted'?'Included allowance exhausted':w.forecast==='reset_first'?'Reset comes before projected exhaustion':w.forecast==='runs_out_before_reset'?`At this pace: ${date(w.exhausts_at!)}`:'Forecast needs more history in this window';
  return <div className="usage-insights">
   <div className="insight-metrics">
    <div><span>Tokens today</span><strong title={today?.total_tokens.toLocaleString()}>{today?short(today.total_tokens):'—'}</strong><small>{data.timezone} · input + output</small></div>

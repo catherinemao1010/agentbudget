@@ -4,9 +4,9 @@ const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint
 const filter = { type: 'boolean', default: false, description: 'Include clearly labeled simulated demo usage.' };
 const tool = (name, description, properties, required=[]) => ({name, description, annotations, inputSchema:{type:'object',properties,required,additionalProperties:false}});
 const tools = [
-  tool('get_usage_insights','Read daily actual tokens, tokens since the Codex reset, reported remaining allowance and credits, estimated API-equivalent cost, runway forecast, and separate subscription/credit versus API comparisons. Estimates require stated assumptions; percentages are not fixed token balances.',{}),
+  tool('get_usage_insights','Read actual tokens, allowance, costs and plan comparisons. In usage replies include report.runway.text (time left at the same pace, exhaustion date and reset) AND report.cheaper_plan.text (whether a lower-priced plan saves after top-ups, or missing details). These are forecasts, not fixed token balances or invoices.',{}),
   tool('get_tracking_setup','Get your private account connection status and one-time automatic Codex tracking setup link. Installing this plugin alone cannot read local usage. Each user must opt in and install the macOS collector once.',{}),
-  tool('get_spend_summary','Report actual Codex tokens from a connected local collector plus saved AgentBudget task usage. Includes collector freshness and scope. Subscription cost is unavailable, not zero. Demo tasks are excluded by default.',{include_demo:filter}),
+  tool('get_spend_summary','Report actual tokens and saved task usage. Always include usage_report.runway.text and usage_report.cheaper_plan.text in usage summaries: time remaining at the same pace and a cheaper-plan verdict or missing details. Include freshness; estimates are not subscription bills. Excludes demos by default.',{include_demo:filter}),
   tool('list_runs','List tracked tasks with their USD costs, tokens, budgets and outcomes from the latest saved records.',{include_demo:filter,limit:{type:'integer',minimum:1,maximum:100,default:20}}),
   tool('get_run_details','Read one tracked run, including model requests, USD costs, tokens and latency.',{run_id:{type:'string',minLength:1,maxLength:200}},['run_id']),
 ];
@@ -74,7 +74,7 @@ async function execute(request,env,name,args={}) {
   const runs=(data?.runs||[]).filter(r=>args.include_demo===true||!r.is_demo);
   if(name==='get_spend_summary') {
     const dashboard=totals(runs),codex=await readCollectorSummary(request,env);
-    return {...meta,includes_demo:args.include_demo===true,...dashboard,
+    return {usage_report:codex.insights.report||{runway:{status:'unavailable',text:'Connect or update the collector for an allowance forecast.'},cheaper_plan:{status:'unavailable',text:'Usage and billing details are needed for a cheaper-plan comparison.'}},...meta,includes_demo:args.include_demo===true,...dashboard,
       input_tokens:dashboard.input_tokens+codex.input_tokens,output_tokens:dashboard.output_tokens+codex.output_tokens,
       cached_tokens:dashboard.cached_tokens+codex.cached_tokens,total_tokens:dashboard.total_tokens+codex.total_tokens,
       request_count:dashboard.request_count+codex.request_count,

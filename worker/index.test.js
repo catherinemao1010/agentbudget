@@ -44,3 +44,17 @@ test('auto-save authorization, isolation and validation',async()=>{
   assert.equal((await handleRequest(req('/api/plugin/changes',{upserts:[run('x')],removed:['x']},'auto'),env)).status,400);
   assert.equal((await rpc('get_run_details',{run_id:'auto-1'},'other')).result.isError,true);
 });
+test('both usage tools prominently expose runway and a cheaper-plan conclusion',async()=>{
+  const now=Date.now(),stamp=new Date(now).toISOString();
+  const analytics={version:1,timezone:'America/Chicago',history_start:null,periods:{},daily:[],quota:{observed_at:stamp,plan_type:'pro',windows:[{key:'primary',used_percent:80,window_minutes:10080,started_at:new Date(now-2*86400000).toISOString(),resets_at:new Date(now+5*86400000).toISOString(),started_at_basis:'reset time minus window duration'}]}};
+  memory.set('usage/report-user.json',JSON.stringify({sessions:[],received_at:stamp,observed_at:stamp,analytics}));
+  for(const name of ['get_spend_summary','get_usage_insights']){
+    const data=JSON.parse((await rpc(name,{},'report-user')).result.content[0].text);
+    const report=data.usage_report||data.report;
+    assert.match(report.runway.text,/12 hours/);
+    assert.match(report.cheaper_plan.text,/Cannot determine/);
+    assert.equal(report.cheaper_plan.monthly_savings_usd,null);
+  }
+  const other=JSON.parse((await rpc('get_spend_summary',{},'another-report-user')).result.content[0].text);
+  assert.equal(other.usage_report.runway.status,'unavailable');
+});
