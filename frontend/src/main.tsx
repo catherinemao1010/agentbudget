@@ -43,6 +43,7 @@ import {
   type Run,
 } from "./data";
 import "./style.css";
+import { ActualUsage } from "./ActualUsage";
 import { McpConnections } from "./McpConnections";
 import { usePluginSync } from "./usePluginSync";
 type Page = "Overview" | "Runs" | "Budgets" | "Integrations";
@@ -388,7 +389,7 @@ function App() {
           <div className="top-actions">
             <span className="mode-tag">
               <span />
-              {mode === "demo" ? "Demo data" : "Live ledger"}
+              {mode === "demo" ? "SDK demo data" : "Live ledger"}
             </span>
             <button
               className="icon-btn"
@@ -444,11 +445,11 @@ function App() {
               )}
             </div>
           </div>
+          {(page === "Overview" || page === "Integrations") && <ActualUsage setup={page === "Integrations"} />}
           {mode === "demo" && (
             <div className="demo-banner">
               <span>
-                <span className="demo-label">SANDBOX</span> You’re exploring
-                simulated activity. No API keys or real charges.
+                <span className="demo-label">SANDBOX</span> SDK panels below show simulated activity. Your actual Codex usage is shown separately above.
               </span>
               <button onClick={() => navigate("Integrations")}>
                 Connect your agent <ArrowRight size={14} />

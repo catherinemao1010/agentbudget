@@ -4,19 +4,43 @@
 
 An MIT-licensed tool for tracking agent task costs, token usage, latency, and budget limits. Includes a full-stack dashboard, Python SDK, and MCP reporting plugin.
 
-**[Try the public demo](https://agentbudget-catherine.peiyuchen2023.chatgpt.site/)** — synthetic activity, no API key or real charges.
+**[Open AgentBudget](https://agentbudget-catherine.peiyuchen2023.chatgpt.site/)** — actual Codex usage after collector setup, alongside clearly labeled SDK simulations.
 
 Built with **React · TypeScript · Vite · Python · FastAPI · SQLite · MCP · Cloudflare Workers/R2**.
 
-## What this tool tracks
+## Automatic actual Codex usage
 
-**Selecting `@AgentBudget` does not measure the current ChatGPT or Codex conversation.** The MCP plugin reads records already collected by AgentBudget; it is not a subscription usage meter.
+**Connect the local collector once. No manual sync and no API key are needed.**
 
-- **Real usage:** Python model requests made through `BudgetClient` record provider-reported tokens and estimated USD costs in the local ledger. The local MCP server reads that ledger directly.
-- **Public demo:** Uses labeled simulations. Its dashboard automatically saves records to the signed-in user’s cloud snapshot. The hosted plugin reports that snapshot.
-- **Automatic saving:** Uploads dashboard changes while the page is open. It does not collect chat usage, connect to provider billing, or upload a laptop’s ledger to the hosted demo.
+1. Sign in to the hosted dashboard, open **Integrations**, and create a collector key.
+2. From this checkout (Python 3.9+; no packages needed for the collector):
 
-A report of **0 runs / 0 tokens excluding demos** means no real instrumented records are present in that data source. Demo records can be requested explicitly.
+```sh
+python3 scripts/codex-collector.py configure --site https://agentbudget-catherine.peiyuchen2023.chatgpt.site
+# Paste your collector key at the hidden prompt.
+python3 scripts/codex-collector.py install
+```
+
+On macOS, this installs a user LaunchAgent that starts at login and runs every 30 seconds while your Mac is awake. The website can be closed. Open Overview for actual counts, or ask the hosted `@AgentBudget` plugin for your actual Codex usage. The web page refreshes its usage report every 10 seconds. `get_spend_summary` returns `codex_usage` with source, coverage, `observed_at`, and `received_at`; `list_runs` and `get_run_details` continue to describe SDK/dashboard tasks, not Codex sessions.
+
+```sh
+python3 scripts/codex-collector.py status
+python3 scripts/codex-collector.py once       # optional diagnostic
+python3 scripts/codex-collector.py uninstall # stops automatic collection
+```
+
+Click **Disconnect collector** in Integrations to revoke uploads. Replacing a key also revokes the previous key. Only one collector per account is supported. Uninstall preserves usage history. To remove the local history and key, delete `~/Library/Application Support/AgentBudget` after uninstalling.
+
+### Coverage and accurate accounting
+
+- Reads per-response `token_usage_record` events in local Codex `sessions` and `archived_sessions`. It does not read login credentials, make paid model calls, or change Codex configuration. Older logs without these events are not supported; missing logs cannot be reconstructed. The latest 2,000 recorded sessions are retained in each cloud snapshot.
+- Deduplicates response IDs across repeated events, forks, incremental scans, and restarts. Cumulative `token_count` events are intentionally ignored. Cached tokens are part of input; reasoning tokens are part of output, never added twice.
+- Sends only model identifiers, counters, timestamps, and hashed session IDs. No prompts, responses, task titles, directory paths, or Codex credentials are uploaded. The local SQLite cache keeps only usage metadata and file cursors.
+- **Actual price is unavailable**, not $0. Codex session records do not provide per-request subscription charges. The app does not invent a dollar price or claim to reproduce your invoice.
+- Covers local Codex activity on the connected Mac. **Ordinary ChatGPT web chats, other computers, and cloud-only activity without local logs are not included.** Selecting `@AgentBudget` alone does not install the collector. The collector observes usage; it cannot block Codex requests or enforce subscription limits.
+- A separate Python `BudgetClient` integration records instrumented API calls and estimated costs in the local ledger. SDK simulations remain explicitly labeled demo records. The hosted actual-usage panel is independent of demo date filters.
+
+The collector key is write-only and stored locally with mode 0600. Hosted storage retains only its SHA-256 hash. User identity comes from the signed-in Sites session when pairing; uploads cannot choose another user's identity. Uploads require HTTPS and never follow redirects. Offline uploads retry automatically from durable local usage records. Rotating or revoking a key requires reconnecting the local collector.
 
 ## What works
 
@@ -26,9 +50,9 @@ A report of **0 runs / 0 tokens excluding demos** means no real instrumented rec
 - Dashboard filters, request traces, CSV export, editable task budgets, and free simulations.
 - Text-only OpenAI Responses adapter for `gpt-4.1-mini-2025-04-14`.
 - Three read-only MCP tools: spend summary, list runs, run details.
-- Local plugin package and marketplace manifest. No global settings are modified by this repository.
+- Local plugin package and marketplace manifest. The optional collector install command creates a user LaunchAgent; it does not change Codex settings.
 
-**Status:** v0.2.0 prototype. The hosted Site includes a private MCP plugin and per-user snapshot storage. Not published to PyPI or a public plugin directory. No adoption or performance claims are implied.
+**Status:** v0.3.0 prototype. The hosted Site includes a private MCP plugin and per-user snapshot storage. Not published to PyPI or a public plugin directory. No adoption or performance claims are implied.
 
 ## Quick start
 
@@ -143,7 +167,7 @@ MIT. See [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Sites provisions the private AgentBudget plugin when publishing the Worker with the `mcp` capability. Install/connect it in Plugins → Personal → Created by you, then select AgentBudget with `@` in a new chat. Open the dashboard while signed in; **Automatic sync** saves changes without a button. Simulations are excluded by default: explicitly ask to include demo runs.
 
-The three read-only tools are `get_spend_summary`, `list_runs`, and `get_run_details`. They report USD estimates, input/output/cached/total tokens, latency and outcomes. They cannot read provider bills or subscription usage. Cached tokens are a subset of input tokens, not additional tokens.
+The three read-only tools are `get_spend_summary`, `list_runs`, and `get_run_details`. The summary includes actual Codex usage from the connected collector and separate saved task estimates. If Codex usage is present, the combined cost is null (unknown), while `dashboard_usage` retains task estimates. They cannot read provider bills. Cached tokens are a subset of input tokens, not additional tokens.
 
 Hosted data is isolated by the authenticated Site user ID supplied by Sites. The automatic sync API validates and whitelists fields, checks the same-origin request, and merges changes with conditional R2 writes to preserve unrelated concurrent edits. Existing cloud records load on startup; new browser seeds cannot overwrite them. Concurrent edits to the same run use the last successful save. It stores task names and usage metadata; no API keys or prompt/response bodies. The local Python service has separate authentication and storage. Self-hosting this Worker requires a trusted authentication gateway that strips client-supplied identity headers, and a BUCKET binding; do not expose it directly without that gateway.
 
@@ -151,7 +175,7 @@ Build: `pnpm build`. Worker tests: `pnpm test:worker`. The build embeds Vite ass
 
 ### Automatic sync boundaries
 
-The dashboard saves changes within about two seconds and retries failed saves while open. Wait for **Up to date** before closing; unsaved changes cannot be uploaded from a closed browser. Plugin calls re-read storage and include both the last save time and current read time. A read does not invent a newer save time or collect the host chat’s token usage. The hosted plugin cannot reach a laptop’s local SQLite ledger. The local stdio MCP server already queries that ledger directly on every call. Anonymous demo visitors stay browser-local; hosted cloud saves require sign-in.
+The dashboard saves changes within about two seconds and retries failed saves while open. Wait for **Up to date** before closing; unsaved changes cannot be uploaded from a closed browser. Plugin calls re-read storage and include both the last save time and current read time. A read does not invent a newer save time or collect the host chat’s token usage. The hosted plugin cannot reach a laptop’s local SDK ledger. The separate opt-in collector uploads Codex usage automatically even while the website is closed. The local stdio MCP server already queries that ledger directly on every call. Anonymous demo visitors stay browser-local; hosted cloud saves require sign-in.
 
 ### Deploy your own Site
 

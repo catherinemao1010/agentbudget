@@ -11,7 +11,8 @@ async function walk(dir,prefix='') {
 await walk('dist');
 await mkdir('dist/server',{recursive:true});
 await mkdir('dist/.openai',{recursive:true});
-const worker=(await readFile('worker/index.js','utf8')).replace('export default {fetch:handleRequest};',`const assets=${JSON.stringify(assets)};\nexport default {fetch:(request,env)=>handleRequest(request,env,assets)};`);
+const collector=(await readFile('worker/collector.js','utf8')).replaceAll('export async function','async function');
+const worker=(await readFile('worker/index.js','utf8')).replace("import {handleCollector, readCollectorSummary} from './collector.js';",collector).replace('export default {fetch:handleRequest};',`const assets=${JSON.stringify(assets)};\nexport default {fetch:(request,env)=>handleRequest(request,env,assets)};`);
 await writeFile('dist/server/index.js',worker);
 await writeFile('dist/.openai/hosting.json',await readFile('.openai/hosting.json'));
 console.log('Built embedded dashboard + MCP Worker');

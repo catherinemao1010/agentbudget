@@ -1,9 +1,10 @@
+import {handleCollector, readCollectorSummary} from './collector.js';
 const VERSION = '2026-07-28';
 const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const filter = { type: 'boolean', default: false, description: 'Include clearly labeled simulated demo usage.' };
 const tool = (name, description, properties, required=[]) => ({name, description, annotations, inputSchema:{type:'object',properties,required,additionalProperties:false}});
 const tools = [
-  tool('get_spend_summary','Report USD cost estimates and input, output, cached and total tokens from the latest automatically saved AgentBudget records. Not provider billing or subscription usage.',{include_demo:filter}),
+  tool('get_spend_summary','Report actual Codex tokens from a connected local collector plus saved AgentBudget task usage. Includes collector freshness and scope. Subscription cost is unavailable, not zero. Demo tasks are excluded by default.',{include_demo:filter}),
   tool('list_runs','List tracked tasks with their USD costs, tokens, budgets and outcomes from the latest saved records.',{include_demo:filter,limit:{type:'integer',minimum:1,maximum:100,default:20}}),
   tool('get_run_details','Read one tracked run, including model requests, USD costs, tokens and latency.',{run_id:{type:'string',minLength:1,maxLength:200}},['run_id']),
 ];
@@ -48,7 +49,18 @@ async function execute(request,env,name,args={}) {
   const {data}=await snapshot(request,env);
   const meta={synced_at:data?.synced_at||null,source:'automatically saved dashboard records',read_at:new Date().toISOString(),cost_basis:'Reported estimates, not provider billing. Cached tokens are included in input tokens.',message:data?undefined:'No records yet. Open the AgentBudget dashboard while signed in; records save automatically.'};
   const runs=(data?.runs||[]).filter(r=>args.include_demo===true||!r.is_demo);
-  if(name==='get_spend_summary') return {...meta,includes_demo:args.include_demo===true,...totals(runs)};
+  if(name==='get_spend_summary') {
+    const dashboard=totals(runs),codex=await readCollectorSummary(request,env);
+    return {...meta,includes_demo:args.include_demo===true,...dashboard,
+      input_tokens:dashboard.input_tokens+codex.input_tokens,output_tokens:dashboard.output_tokens+codex.output_tokens,
+      cached_tokens:dashboard.cached_tokens+codex.cached_tokens,total_tokens:dashboard.total_tokens+codex.total_tokens,
+      request_count:dashboard.request_count+codex.request_count,
+      estimated_cost_usd:codex.total_tokens?null:dashboard.estimated_cost_usd,
+      dashboard_usage:dashboard,codex_usage:codex,
+      cost_basis:codex.total_tokens?codex.cost_basis:meta.cost_basis,
+      source:'Saved dashboard tasks and automatically collected Codex usage (separate sources)',
+      message:codex.total_tokens?'Actual Codex token usage is available in codex_usage. Consult observed_at and received_at for freshness.':meta.message};
+  }
   if(name==='list_runs') {
     const limit=args.limit??20;
     if(!Number.isInteger(limit)||limit<1||limit>100) fail('limit must be 1–100');
@@ -62,6 +74,8 @@ async function execute(request,env,name,args={}) {
 export async function handleRequest(request,env,assets={}) {
   const url=new URL(request.url);
   try {
+    const collected=await handleCollector(request,env);
+    if(collected)return collected;
     if(url.pathname==='/mcp') {
       if(request.method!=='POST') return json({error:'Use POST'},405);
       let rpc;
