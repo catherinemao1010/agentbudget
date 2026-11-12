@@ -177,16 +177,8 @@ def analytics(con):
             reset = dt.datetime.fromisoformat(w['resets_at'])
             start = reset - dt.timedelta(minutes=w['window_minutes'])
             w['started_at_basis'] = 'reset time minus window duration'
-            # A same-window decrease can indicate an early/manual reset.
-            previous = None
-            for stamp, value in con.execute('SELECT time,value FROM quota_samples WHERE time>=? ORDER BY time', (start.isoformat(),)):
-                q = json.loads(value)
-                match = next((v for v in q['windows'] if v['key'] == w['key'] and v['resets_at'] == w['resets_at']), None)
-                if match:
-                    if previous is not None and match['used_percent'] < previous:
-                        start = dt.datetime.fromisoformat(stamp)
-                        w['started_at_basis'] = 'first observed decrease; reset may have occurred earlier'
-                    previous = match['used_percent']
+            # Concurrent sessions can emit delayed quota readings. A decrease
+            # alone is not evidence of a reset; use the provider's window only.
             w['started_at'] = start.isoformat()
             if start <= current < reset:
                 periods['since_reset_' + w['key']] = (start, current)

@@ -173,3 +173,22 @@ def test_metadata_backfill_preserves_deduplicated_tokens(tmp_path):
 def test_quota_rejects_invalid_or_unrelated_limits():
     assert collector.clean_quota({'limit_id':'another-service'},'2026-11-12T00:00:00Z') is None
     assert collector.clean_quota({'credits':{'balance':'NaN'}},'2026-11-12T00::00Z') is None
+
+
+def test_delayed_quota_decrease_does_not_reset_usage_window(tmp_path):
+    import datetime as dt
+    root, con = setup(tmp_path)
+    current = dt.datetime.now(dt.timezone.utc)
+    reset = int((current + dt.timedelta(days=3)).timestamp())
+    recent = event('before-delayed-quota')
+    recent['timestamp'] = (current - dt.timedelta(hours=2)).isoformat()
+    readings = []
+    for minutes, used in [(60, 31), (30, 30), (1, 31)]:
+        readings.append({'type':'event_msg', 'timestamp':(current-dt.timedelta(minutes=minutes)).isoformat(),
+                         'payload':{'type':'token_count', 'rate_limits':{'limit_id':'codex',
+                         'primary':{'used_percent':used,'window_minutes':10080,'resets_at':reset}}}})
+    write(root/'one.jsonl', [recent, *readings])
+    a = collector.collect(con, [root])['analytics']
+    expected_start = dt.datetime.fromtimestamp(reset, dt.timezone.utc) - dt.timedelta(days=7)
+    assert a['quota']['windows'][0]['started_at'] == expected_start.isoformat()
+    assert sum(m['input_tokens']+m['output_tokens'] for m in a['periods']['since_reset_primary']['models']) == 140
